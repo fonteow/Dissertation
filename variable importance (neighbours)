@@ -1,0 +1,96 @@
+library(readxl)
+library(tidyverse)
+comb1=read_excel("C:/Users/Owen/Desktop/Best clusters neighbours.xlsx")
+comb=matrix(data=NA,nrow=12,ncol=4)
+for(i in 1:nrow(comb1)){
+  for(j in 1:ncol(comb1)){
+    comb[i,j]=as.numeric(comb1[i,j])
+  }
+}
+colnames(comb)=c("Cluster","WP Lag","JR Lag","CP")
+lagcol=c(1101,2201,3301)
+library(rpart)
+library(rpart.plot)
+
+nn=list()
+nn[[1]]=c(4,5,6,20,21,22)
+nn[[2]]=c(3,4,5,6,7,8)
+nn[[3]]=c(4,5,6,7,8,9,10)
+nn[[4]]=c(6, 7, 8, 9, 10, 11, 12)
+nn[[5]]=c(9, 10, 11, 12, 13, 14, 15)
+nn[[6]]=c(13, 14, 15, 16, 17, 18, 19)
+nn[[7]]=c(17, 18, 19, 20, 21, 22, 23)
+nn[[8]]=c(3, 4, 5, 20, 21, 22, 23)
+nn[[9]]=c(4, 5, 20, 21, 22, 23)
+nn[[10]]=c(1, 2, 3, 4, 5, 21)
+nn[[11]]=c(1, 2, 3, 4, 5, 25)
+nn[[12]]=c(1, 21, 22, 23, 24, 25)
+
+for (i in 1:nrow(comb)){
+  ### Building dataset according to ith model (ith row in combinations table)
+  if (comb[i,3]==0){
+    clusterdata=cbind(crep[,comb[i,1]+1],waterparam2[,2:lagcol[comb[i,2]+1]])
+    colnames(clusterdata)[1] <- "Report"
+    clusterdata$Report=as.factor(clusterdata$Report)
+  }
+  else if (comb[i,3]==1){
+    jlag1=c(NA,crep[,comb[i,1]+1][1:(length(crep[,comb[i,1]+1])-1)])
+    clusterdata=cbind(crep[,comb[i,1]+1],jlag1,waterparam2[,2:lagcol[comb[i,2]+1]])
+    colnames(clusterdata)[1] <- "Report"
+    colnames(clusterdata)[2] <- "Report L1"
+    clusterdata$Report=as.factor(clusterdata$Report)
+    clusterdata$`Report L1`=as.factor(clusterdata$`Report L1`)
+  }
+  else{
+    jlag1=c(NA,crep[,comb[i,1]+1][1:(length(crep[,comb[i,1]+1])-1)])
+    jlag2=c(NA,NA,crep[,comb[i,1]+1][1:(length(crep[,comb[i,1]+1])-2)])
+    jlag=cbind(jlag1,jlag2)
+    clusterdata=cbind(crep[,comb[i,1]+1],jlag,waterparam2[,2:lagcol[comb[i,2]+1]])
+    colnames(clusterdata)[1] <- "Report"
+    colnames(clusterdata)[2] <- "Report L1"
+    colnames(clusterdata)[3] <- "Report L2"
+    clusterdata$Report=as.factor(clusterdata$Report)
+    clusterdata$`Report L1`=as.factor(clusterdata$`Report L1`)
+    clusterdata$`Report L2`=as.factor(clusterdata$`Report L2`)
+  }
+  l=max(comb[i,2:3])
+  if (l==1){clusterdata=clusterdata[-1,]}
+  if (l==2){clusterdata=clusterdata[c(-1,-2),]}
+  ###
+  
+  ### Specific boxes only:
+  boxindex=vector()
+  for (m in c(nn[[i]])){
+    boxindex=append(boxindex,25*(1:((lagcol[as.numeric(comb[i,2]+1)]-1)/25)-1)+m)
+  }
+  boxindex=sort(boxindex)
+  if(comb[i,3]==0){clusterdata=clusterdata[,c(1,boxindex+comb[i,3]+1)]}
+  else if(comb[i,3]==1){clusterdata=clusterdata[,c(1,2,boxindex+comb[i,3]+1)]}
+  else{clusterdata=clusterdata[,c(1,2,3,boxindex+comb[i,3]+1)]}
+  ###
+
+  train=clusterdata
+  w0=50/(100*((as.numeric(table(train$Report)[1]))/(as.numeric(table(train$Report)[1])+as.numeric(table(train$Report)[2]))))
+  w1=50/(100*((as.numeric(table(train$Report)[2]))/(as.numeric(table(train$Report)[1])+as.numeric(table(train$Report)[2]))))
+  weight=replace(as.numeric(train$Report),as.numeric(train$Report)==1,w0)
+  weight=replace(weight,weight==2,w1)
+  tree=rpart(formula=train$Report~.,data=train,method='class',weights=weight,control=rpart.control(cp=comb[i,4]))
+  rpart.plot(tree,cex=0.6,extra=1)
+  
+  importance=tree$variable.importance
+  df <- data.frame(imp = importance)
+  df2 <- df %>% 
+    tibble::rownames_to_column() %>% 
+    dplyr::rename("variable" = rowname) %>% 
+    dplyr::arrange(imp) %>%
+    dplyr::mutate(variable = forcats::fct_inorder(variable))
+  if(nrow(df2)>20){df2=df2[(nrow(df2)-19):nrow(df2),]}
+  plot(ggplot2::ggplot(df2) +
+         geom_segment(aes(x = variable, y = 0, xend = variable, yend = imp), 
+                      size = 1, alpha = 0.7) +
+         geom_point(aes(x = variable, y = imp, col = variable), 
+                    size = 4, show.legend = F) +
+         coord_flip() +
+         theme_bw())
+  
+}
