@@ -1,0 +1,131 @@
+#arclength distance function
+arc_dist = function(angle1, angle2) {
+  if (max(angle1,angle2)-min(angle1,angle2)<=pi) {return((c/(2*pi))*(max(angle1, angle2)-min(angle1, angle2)))}
+  if (max(angle1,angle2)-min(angle1,angle2)>pi) {return((c/(2*pi))*(2*pi-(max(angle1, angle2)-min(angle1, angle2))))}
+}
+
+#mean function
+arcmean = function(vec,weight) {
+  if ((weighted.mean(sin(vec),weight)>0)&(weighted.mean(cos(vec),weight)>0)) {return(atan((weighted.mean(sin(vec),weight))/(weighted.mean(cos(vec),weight))))}
+  if (weighted.mean(cos(vec),weight)<0) {return(atan((weighted.mean(sin(vec),weight))/(weighted.mean(cos(vec),weight)))+pi)}
+  if ((weighted.mean(sin(vec),weight)<0)&(weighted.mean(cos(vec),weight)>0)) {return(atan((weighted.mean(sin(vec),weight))/(weighted.mean(cos(vec),weight)))+(2*pi))}
+  if (length(vec)==1) {return(vec)}
+}
+
+K_Clusters=matrix(data=NA, nrow = 9, ncol = 0)
+ss=vector()
+for (K in 2:7) {
+  S=matrix(data=NA, nrow = 1, ncol = 0)
+  Diff_cent_angles=matrix(data=NA, nrow = K, ncol = 0)
+  Diff_clusters=matrix(data=NA, nrow = nrow(v), ncol = 0)
+  for (p in 1:500){ #repeating clustering algortihm for fixed K for 1000 times
+    
+    init=sample(nrow(v),K) #select intial centroids randomly
+    distance=matrix(data = NA, nrow = nrow(v), ncol = K) #empty distance matrix (distance between each point and centroids)
+    
+    for (k in c(1:K)) { #filling in distance matrix
+      for (i in c(1:nrow(v))) {
+        distance[i,k]=arc_dist(v[i,4],v[init[k],4])
+      }
+    }
+    
+    cluster=vector() #clustering vector
+    for (i in c(1:nrow(v))) { #filling in clustering vector by assigning each point to cluster whose centroid is closest
+      cluster[i] = which.min(distance[i,])
+    }
+    
+    cent_angle_new=vector()
+    oldcl = vector(length = length(cluster))
+    newcl=cluster
+    while(!all(oldcl==newcl)){
+      oldcl=newcl
+      
+      for (i in 1:K) { #calculating weighted mean centroids for each cluster
+        cent_angle_new[i]=arcmean(v[which(cluster==i),4],v[which(cluster==i),5])
+      }
+      
+      for (k in c(1:K)) { #updating distance matrix
+        for (i in c(1:nrow(v))) {
+          distance[i,k]=arc_dist(v[i,4],cent_angle_new[k])
+        }
+      }
+      
+      for (i in c(1:nrow(v))) { #updating cluster
+        cluster[i] = which.min(distance[i,])
+      }
+      newcl=cluster
+    }
+    
+    pointsdistance=matrix(data = NA, nrow = nrow(v), ncol = nrow(v))
+    for (k in c(1:nrow(v))) { #filling in distance matrix
+      for (i in c(1:nrow(v))) {
+        pointsdistance[i,k]=arc_dist(v[i,4],v[k,4])
+      }
+    }
+    
+    a=vector() #cohesion
+    for (i in c(1:nrow(v))) {
+      a[i]=(sum(pointsdistance[which(cluster==cluster[i]),i]))/(length(which(cluster==cluster[i]))-1)
+    }
+    
+    separation=matrix(data = NA, nrow = nrow(v), ncol = K-1)
+    for (i in c(1:nrow(v))) {
+      for (j in 1:K-1) {
+        separation[i,j]=mean(pointsdistance[which(cluster==((1:K)[!(1:K) %in% cluster[i]][j])),i])
+      }
+    }
+    
+    b=vector()
+    for (i in c(1:nrow(v))) {
+      b[i]=min(separation[i,])
+    }
+    
+    shil=vector()
+    for (i in c(1:nrow(v))) {
+      shil[i]=(b[i]-a[i])/(max(a[i],b[i]))
+    }
+    shil[is.na(shil)] <- 0
+    
+    if((mean(shil) %in% S)==FALSE) {
+      S=cbind(S,mean(shil))
+      Diff_cent_angles=cbind(Diff_cent_angles,cent_angle_new)
+      Diff_clusters=cbind(Diff_clusters,cluster)
+    }
+  }
+  
+  s=max(S)
+  cent_angle_new=Diff_cent_angles[,which(S==max(S))]
+  cluster=Diff_clusters[,which(S==max(S))]
+  
+  ss[K]=s
+  K_Clusters=cbind(K_Clusters,cluster)
+  ############
+  plot(v[,2:3],main="Weighted K-means: 10 clusters")
+  points(v$C1[which(cluster==1)],v$C2[which(cluster==1)],col="red",pch=18,cex=2)
+  points(v$C1[which(cluster==2)],v$C2[which(cluster==2)],col="blue",pch=18,cex=2)
+  points(v$C1[which(cluster==3)],v$C2[which(cluster==3)],col="aquamarine",pch=18,cex=2)
+  points(v$C1[which(cluster==4)],v$C2[which(cluster==4)],col="yellow",pch=18,cex=2)
+  points(v$C1[which(cluster==5)],v$C2[which(cluster==5)],col="darkorange",pch=18,cex=2)
+  points(v$C1[which(cluster==6)],v$C2[which(cluster==6)],col="deeppink",pch=18,cex=2)
+  points(v$C1[which(cluster==7)],v$C2[which(cluster==7)],col="forestgreen",pch=18,cex=2)
+  points(v$C1[which(cluster==8)],v$C2[which(cluster==8)],col="black",pch=18,cex=2)
+  points(v$C1[which(cluster==9)],v$C2[which(cluster==9)],col="cyan",pch=18,cex=2)
+  points(v$C1[which(cluster==10)],v$C2[which(cluster==10)],col="brown",pch=18,cex=2)
+  
+  points(r*cos(cent_angle_new),r*sin(cent_angle_new),pch=18,col="black",cex=0.5)
+  
+  plot(location[,2:3],main="Weighted K-means: 10 clusters")
+  points(location$Longitude[which(cluster==1)],location$Latitude[which(cluster==1)],col="red",pch=18,cex=2)
+  points(location$Longitude[which(cluster==2)],location$Latitude[which(cluster==2)],col="blue",pch=18,cex=2)
+  points(location$Longitude[which(cluster==3)],location$Latitude[which(cluster==3)],col="aquamarine",pch=18,cex=2)
+  points(location$Longitude[which(cluster==4)],location$Latitude[which(cluster==4)],col="black",pch=18,cex=2)
+  points(location$Longitude[which(cluster==5)],location$Latitude[which(cluster==5)],col="darkorange",pch=18,cex=2)
+  points(location$Longitude[which(cluster==6)],location$Latitude[which(cluster==6)],col="deeppink",pch=18,cex=2)
+  points(location$Longitude[which(cluster==7)],location$Latitude[which(cluster==7)],col="forestgreen",pch=18,cex=2)
+  points(location$Longitude[which(cluster==8)],location$Latitude[which(cluster==8)],col="yellow",pch=18,cex=2)
+  points(location$Longitude[which(cluster==9)],location$Latitude[which(cluster==9)],col="cyan",pch=18,cex=2)
+  points(location$Longitude[which(cluster==10)],location$Latitude[which(cluster==10)],col="brown",pch=18,cex=2)
+}
+
+plot(2:7,ss[2:7])
+lines(2:7,ss[2:7])
