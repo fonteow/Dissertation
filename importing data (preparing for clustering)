@@ -1,0 +1,70 @@
+library(readxl)
+loc <- read_excel("C:/Users/Owen/Desktop/tezi/Location coord.xlsx")
+official <- read_excel("C:/Users/Owen/Desktop/tezi/OFFICIAL DATASET.xlsx")
+reports <- read_excel("C:/Users/Owen/Desktop/tezi/all reports.xlsx", col_types = c("text", "date"))
+
+reports[reports==0]<-NA
+reports<-na.omit(reports)
+
+# Filling in dataset with each bay as column
+for (j in 1:35){
+  bay<-subset(reports,reports$BAY==j)
+  
+  for (k in 1:length(bay$`Report Date`)) {
+    for (i in 1:length(official$Date)) {
+      if (bay$`Report Date`[k]==official$Date[i]) {
+        official[i,j+1]=1
+      }
+    }
+  }
+}
+
+official[is.na(official)]<-0 # Replacing NA's with 0's
+library(writexl)
+write_xlsx(official,"C:/Users/Owen/Desktop/tezi/officialdataset.xlsx")
+
+official <- read_excel("C:/Users/Owen/Desktop/OFFICIAL CODES/officialdataset.xlsx")
+
+## Counting number of reports per bay and storing in dataframe
+nrep<-mat.or.vec(35,1)
+for (l in 1:35){
+  nrep[l]=sum(official[,l+1])
+}
+
+loc=cbind(loc,nrep)
+##################################################################################################
+#Location of bays with grid
+l1<-read.csv(file = "C:/Users/Owen/Desktop/tezi/lat grid.csv")
+l2<-read.csv(file = "C:/Users/Owen/Desktop/tezi/lon grid.csv")
+l1$LAT=l1$LAT-((l1$LAT[2]-l1$LAT[1])/2)
+
+plot(loc[,2:3],xlim=c(l2$LON[1],l2$LON[31]),ylim=c(l1$LAT[1],l1$LAT[31]))
+abline(h=l1$LAT,v=l2$LON,col="red",lty=3)
+points(c(l2$LON[1],l2$LON[31],l2$LON[1],l2$LON[31]),c(l1$LAT[1],l1$LAT[1],l1$LAT[31],l1$LAT[31]),col="blue",pch=18)
+points(c(l2$LON[9],l2$LON[23],l2$LON[9],l2$LON[23]),c(l1$LAT[9],l1$LAT[9],l1$LAT[23],l1$LAT[23]),col="red",pch=18)
+
+plot(loc[,2:3],xlim=c(l2$LON[9],l2$LON[23]),ylim=c(l1$LAT[9],l1$LAT[23]),cex=0.75)
+abline(h=l1$LAT,v=l2$LON,col="red",lty=1)
+
+plot(loc[,2:3],xlim=c(l2$LON[10],l2$LON[22]),ylim=c(l1$LAT[13],l1$LAT[22]),cex=0.5,pch=16)
+abline(h=l1$LAT,v=l2$LON,col="red",lty=1)
+##########################################################################
+#plotting as circle
+location=loc[1:24,]   #if for malta
+c=132.9               #malta circum
+
+location=loc[27:35,]  #if for gozo
+c=50.94               #gozo circum
+
+r=c/(2*pi)
+t<-(1/r)*location[,4] #angle in radians
+v1<-r*cos(t) #1st coord
+v2<-r*sin(t) #2nd coord
+v<-data.frame(v1,v2,t)
+v<-cbind(location$`Bay Name`,v,location$nrep)
+names(v)=c("Bay Name","C1","C2","Angle","N")
+
+plot(v[,2:3],xlim=c(-25,25),ylim=c(-25,25))
+text(v$C1,v$C2,labels = v$`Bay Name`,cex=0.5)
+lines(r*cos((pi/180)*(1:359)),r*sin((pi/180)*(1:359)),col="snow3",type="l")
+
