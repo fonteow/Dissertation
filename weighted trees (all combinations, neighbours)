@@ -1,0 +1,226 @@
+cluster=c(1,1,1,2,2,2,3,3,3,4,4,4,5,5,5,5,5,6,6,7,7,7,7,7,8,8,9,10,10,10,11,11,12,12,9)  #malta 7, gozo 4
+
+library(readxl)
+waterparam2 <- read_excel("C:/Users/Owen/Desktop/OFFICIAL CODES/DataOutputL2.xlsx") #oceanographic variables lag=2
+
+official <- read_excel("C:/Users/Owen/Desktop/OFFICIAL CODES/officialdataset.xlsx") #dataset of reports per bay
+### Merging bays to form clusters
+crep=data.frame(official$Date)
+names(crep)=c("Date")
+K=max(cluster)
+for (k in 1:K) {
+  r=vector()
+  cluster
+  for (i in 1:nrow(official)) {
+    if((sum(official[i,which(cluster==k)+1]))>=1) {
+      r[i]=1
+    }
+    else {
+      r[i]=0
+    }
+  }
+  crep=cbind(crep,r)
+}
+names(crep)=c("Date","Cluster 1","Cluster 2","Cluster 3","Cluster 4","Cluster 5","Cluster 6","Cluster 7","Cluster 8","Cluster 9","Cluster 10","Cluster 11","Cluster 12")
+num_rep_per_cluster=vector() #number of reports per cluster
+for (k in 1:K) {
+  num_rep_per_cluster[k]=sum(crep[,k+1])
+}
+num_rep_per_cluster
+###
+
+### Weighted decision trees with varying (jellyfish presence lag) x (oceanographic vars laag) x (CP)
+comb=matrix(data=NA,nrow=0,ncol=4) #combinations table
+cp=seq(0.01,0.024,by=0.002)
+h=12 #Choosing cluster
+for (i1 in h){
+  for (i2 in 0:2){
+    for (i3 in 0:2){
+      for (i4 in 1:8){
+        comb=rbind(comb,c(i1,i2,i3,cp[i4]))
+      }
+    }
+  }
+}
+colnames(comb)=c("Cluster","WP Lag","JR Lag","CP")
+
+ntrees=list() #list of 72 lists, each list containing 5 decision trees (beacuse of 5 folds)
+lagcol=c(1101,2201,3301)
+a=array(data=NA,dim=c(2,2,5,nrow(comb))) #array containing confusion matrices a(,,2,9)=decision tree of model 9, fold 2
+library(rpart)
+
+predictions=matrix(data=NA,nrow=nrow(crep),ncol=nrow(comb)) #predictions matrix, ith col=predictions of ith model
+predictions_prob=matrix(data=NA,nrow=nrow(crep),ncol=nrow(comb)) #prediction probability matrix, ith col=prediction probabilities of ith model
+
+for (i in 1:nrow(comb)){
+  ### Building dataset according to ith model (ith row in combinations table)
+  if (comb[i,3]==0){
+    clusterdata=cbind(crep[,comb[i,1]+1],waterparam2[,2:lagcol[comb[i,2]+1]])
+    colnames(clusterdata)[1] <- "Report"
+    clusterdata$Report=as.factor(clusterdata$Report)
+  }
+  else if (comb[i,3]==1){
+    jlag1=c(NA,crep[,comb[i,1]+1][1:(length(crep[,comb[i,1]+1])-1)])
+    clusterdata=cbind(crep[,comb[i,1]+1],jlag1,waterparam2[,2:lagcol[comb[i,2]+1]])
+    colnames(clusterdata)[1] <- "Report"
+    colnames(clusterdata)[2] <- "Report L1"
+    clusterdata$Report=as.factor(clusterdata$Report)
+    clusterdata$`Report L1`=as.factor(clusterdata$`Report L1`)
+  }
+  else{
+    jlag1=c(NA,crep[,comb[i,1]+1][1:(length(crep[,comb[i,1]+1])-1)])
+    jlag2=c(NA,NA,crep[,comb[i,1]+1][1:(length(crep[,comb[i,1]+1])-2)])
+    jlag=cbind(jlag1,jlag2)
+    clusterdata=cbind(crep[,comb[i,1]+1],jlag,waterparam2[,2:lagcol[comb[i,2]+1]])
+    colnames(clusterdata)[1] <- "Report"
+    colnames(clusterdata)[2] <- "Report L1"
+    colnames(clusterdata)[3] <- "Report L2"
+    clusterdata$Report=as.factor(clusterdata$Report)
+    clusterdata$`Report L1`=as.factor(clusterdata$`Report L1`)
+    clusterdata$`Report L2`=as.factor(clusterdata$`Report L2`)
+  }
+  l=max(comb[i,2:3])
+  if (l==1){clusterdata=clusterdata[-1,]}
+  if (l==2){clusterdata=clusterdata[c(-1,-2),]}
+  ###
+  
+  ### Specific boxes only:
+  boxindex=vector()
+  for (m in c(1,21,22,23,24,25)){
+    boxindex=append(boxindex,25*(1:((lagcol[as.numeric(comb[i,2]+1)]-1)/25)-1)+m)
+  }
+  boxindex=sort(boxindex)
+  if(comb[i,3]==0){clusterdata=clusterdata[,c(1,boxindex+comb[i,3]+1)]}
+  else if(comb[i,3]==1){clusterdata=clusterdata[,c(1,2,boxindex+comb[i,3]+1)]}
+  else{clusterdata=clusterdata[,c(1,2,3,boxindex+comb[i,3]+1)]}
+  ###
+  
+  ones_set=clusterdata[which(clusterdata$Report==1),] #splitting built dataset into 2 subsets, 0's set and 1's set
+  zeros_set=clusterdata[which(clusterdata$Report==0),]
+  
+  folds_ones=rep_len(1:5,nrow(ones_set)) #creating the folds (1,2,3,4,5,1,...no lags) (2,3,4,5,1,2,...one lag) (3,4,5,1,2,3,...two lags)
+  if (l==0){folds_zeros=rep_len(1:5,nrow(zeros_set)+l)}
+  else {folds_zeros=rep_len(1:5,nrow(zeros_set)+l)[-c(1:l)]}
+  
+  five_trees=list() #list containing 5 trees of the 5 folds
+  
+  for(f in 1:5){
+    fold_ones=which(folds_ones==f)   #ones fold f
+    fold_zeros=which(folds_zeros==f) #zeros fold f
+    
+    training_set=rbind(ones_set[-fold_ones,],zeros_set[-fold_zeros,]) #setting training set as all folds except fold f
+    test_set=rbind(ones_set[fold_ones,],zeros_set[fold_zeros,])       #setting test set as fold f
+    train=training_set
+    
+    #setting weights
+    w0=50/(100*((as.numeric(table(train$Report)[1]))/(as.numeric(table(train$Report)[1])+as.numeric(table(train$Report)[2]))))
+    w1=50/(100*((as.numeric(table(train$Report)[2]))/(as.numeric(table(train$Report)[1])+as.numeric(table(train$Report)[2]))))
+    weight=replace(as.numeric(train$Report),as.numeric(train$Report)==1,w0)
+    weight=replace(weight,weight==2,w1)
+    
+    #building tree and putting it in list
+    tree=rpart(formula=train$Report~.,data=train,method='class',weights=weight,control=rpart.control(cp=comb[i,4]))
+    five_trees[[f]]=tree
+    
+    report_pred=predict(tree,test_set,type='class') #prediction of fold f
+    report_pred_prob=predict(tree,test_set,type='prob')[,2] #prediction probability of fold f
+    confusion=table(test_set$Report,report_pred) 
+    a[,,f,i]=confusion #inserting confusion matrix into array
+    
+    pred_index=c((which(clusterdata$Report==1))[which(folds_ones==f)],(which(clusterdata$Report==0))[which(folds_zeros==f)])+l
+    for(p in 1:length(pred_index)){
+      predictions[pred_index[p],i]=as.numeric(report_pred[p])-1
+      predictions_prob[pred_index[p],i]=as.numeric(report_pred_prob[p])
+    }
+  }
+  ntrees[[i]]=five_trees
+  print(i)
+}
+
+### Accuracies matrices of 5 folds then calculating averages
+overallacc_mat=matrix(data=NA,nrow=nrow(comb),ncol=5)
+recall_mat=matrix(data=NA,nrow=nrow(comb),ncol=5)
+specificity_mat=matrix(data=NA,nrow=nrow(comb),ncol=5)
+balancedacc_mat=matrix(data=NA,nrow=nrow(comb),ncol=5)
+
+for (i in 1:nrow(comb)){
+  for (f in 1:5){
+    overallacc_mat[i,f]=(a[1,1,f,i]+a[2,2,f,i])/(a[1,1,f,i]+a[1,2,f,i]+a[2,1,f,i]+a[2,2,f,i])
+    recall_mat[i,f]=(a[2,2,f,i])/(a[2,1,f,i]+a[2,2,f,i])
+    specificity_mat[i,f]=(a[1,1,f,i])/(a[1,1,f,i]+a[1,2,f,i])
+    balancedacc_mat[i,f]=(((a[2,2,f,i])/(a[2,1,f,i]+a[2,2,f,i]))+((a[1,1,f,i])/(a[1,1,f,i]+a[1,2,f,i])))/2
+  }
+}
+
+overallacc_mean=vector()
+recall_mean=vector()
+specificity_mean=vector()
+balancedacc_mean=vector()
+
+for (i in 1:nrow(comb)){
+  overallacc_mean[i]=mean(overallacc_mat[i,])
+  recall_mean[i]=mean(recall_mat[i,])
+  specificity_mean[i]=mean(specificity_mat[i,])
+  balancedacc_mean[i]=mean(balancedacc_mat[i,])
+}
+###
+
+### Saving combinations table plus accuracy measures
+final=cbind(comb,overallacc_mean,recall_mean,specificity_mean,balancedacc_mean)
+finall=as.data.frame(final)
+library(writexl)
+write_xlsx(finall,"C:/Users/Owen/Desktop/OFFICIAL CODES/Cluster 12 All Combinations (neighbours).xlsx")
+###
+
+### Hard majority (majority voting based on predictions)
+hardmajority=vector()
+for(k in 1:nrow(predictions)){hardmajority[k]=sum(predictions[k,])/nrow(comb)}
+hpred=vector()
+for(k in 3:nrow(predictions)){
+  if(hardmajority[k]>=0.5){hpred[k]=1}
+  else{hpred[k]=0}
+}
+
+predictions1=cbind(predictions,hardmajority,hpred)
+
+test=hpred[3:length(hpred)]
+library(caret)
+example <- confusionMatrix(data=factor(test), reference = factor(clusterdata$Report))
+###
+
+### Soft majority (majority voting based on prediction probabilities)
+softmajority=vector()
+for(k in 1:nrow(predictions_prob)){softmajority[k]=mean(predictions_prob[k,])}
+spred=vector()
+for(k in 3:nrow(predictions_prob)){
+  if(softmajority[k]>=0.5){spred[k]=1}
+  else{spred[k]=0}
+}
+
+predictions_prob1=cbind(predictions_prob,softmajority,spred)
+test1=spred[3:length(spred)]
+example1 <- confusionMatrix(data=factor(test1), reference = factor(clusterdata$Report))
+
+#overall acc=(TP+TN)/(TP+FP+FN+TN)
+#recall=TP/(TP+FN) (or accuracy of 1's or sensitivity)
+#specificity=TN/(TN+FP) (or accuracy of 0's)
+#balanced acc=((TP/(TP+FN))+(TN/(TN+FP)))/2
+
+#     0  1
+#   0 TN FP
+#   1 FN TP
+#rpart.plot(tree,cex=0.6,extra=1)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
